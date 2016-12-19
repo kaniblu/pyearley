@@ -64,7 +64,7 @@ class Graph(object):
 
     def build_tree(self):
         def _build_tree(tree, name):
-            t = tree.add_child(name="({}, {})".format(*name))
+            t = tree.add_child(name="{}/{}".format(*name))
             if name in self.edge_map:
                 for n in self.edge_map[name]:
                     _build_tree(t, n)
@@ -74,6 +74,18 @@ class Graph(object):
 
     def save(self, filename, **kwargs):
         self.tree.render(filename, **kwargs)
+
+    def __repr__(self):
+        def _to_str(tree):
+            name = tree.name
+            if "/" in name:
+                name = name.split("/")[1]
+
+            if tree.children:
+                return "({}){}".format(",".join([_to_str(t) for t in tree.children]), name)
+            else:
+                return name
+        return _to_str(self.tree)
 
     def _find_nodes(self, name):
         def __find_nodes(tree, name):
@@ -89,5 +101,5 @@ class Graph(object):
         return __find_nodes(self.tree, name)
 
     def prune_nodes(self, retained_symbols):
-        nodes = list(map(lambda x: "({}, {})".format(*x), filter(lambda x: x[1] in retained_symbols, self.nodes)))
+        nodes = list(map(lambda x: "{}/{}".format(*x), filter(lambda x: x[1] in retained_symbols, self.nodes)))
         self.tree.prune(nodes)

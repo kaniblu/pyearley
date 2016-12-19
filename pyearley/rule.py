@@ -173,9 +173,8 @@ def main():
     pprint.pprint(parsed_trees)
 
     graph = tree.Graph(parsed_trees[0])
-    graph.save("before.png")
     graph.prune_nodes({"A", "B", "X", "W", "Y", "U"})
-    graph.save("test.png")
+    print(graph)
 
 
 if __name__ == "__main__":
