@@ -20,136 +20,146 @@ def _create_random_name(l=6):
     return name
 
 
-class _Symbol(object):
-    "The basic unit of cfg"
+# basic form
 
-    def __init__(self, terminal, name=None):
-        self.terminal = terminal
-
+class Symbol():
+    def __init__(self, name=None, is_terminal=False):
         if name is None:
             name = _create_random_name()
 
         self.set_name(name)
-
-    def set_body(self, symbols_or_token):
-        self.body = symbols_or_token
-        return self
+        self.is_terminal = is_terminal
+        self.rhs = []
 
     def set_name(self, name):
-        self.name = name
         _NAME_HISTORY.add(name)
+        self.name = name
 
         return self
 
-    def is_terminal(self):
-        return self.terminal
+    def add_rhs(self, symbol):
+        if self.is_terminal:
+            raise SyntaxError()
 
-    def _expand(self):
-        if isinstance(self, OneOrMore):
-            s1 = (self.name, self.body[0].name, self.name)
-            s2 = (self.name, self.body[0].name)
+        self.rhs.append(symbol)
 
-            return {s1, s2}
-        elif isinstance(self, ZeroOrMore):
-            s1 = (self.name, self.body[0].name, self.name)
-            s2 = (self.name, self.body[0].name)
-            s3 = (self.name,)
+        return self
 
-            return {s1, s2, s3}
-        elif isinstance(self, Optional):
-            s1 = (self.name, self.body[0].name)
-            s2 = (self.name,)
+    def __len__(self):
+        return len(self.rhs)
 
-            return {s1, s2}
-        elif isinstance(self, And):
-            return {(self.name,) + tuple([b.name for b in self.body])}
-        elif isinstance(self, Or):
-            return [(self.name, b.name) for b in self.body]
-        elif isinstance(self, Literal):
-            return None
+    def __add__(self, other):
+        return And().add_rhs(self).add_rhs(other)
 
-    def to_ruleset(self):
+    def __or__(self, other):
+        return Or().add_rhs(self).add_rhs(other)
+
+class TerminalSymbol(Symbol):
+    def __init__(self, name=None):
+        super(TerminalSymbol, self).__init__(name, True)
+
+class NonterminalSymbol(Symbol):
+    def __init__(self, name=None):
+        super(NonterminalSymbol, self).__init__(name, False)
+        self._converted = False
+
+    def to_earley_ruleset(self):
+        if self._converted:
+            return set()
+
+        self._converted = True
+
         ruleset = set()
 
-        if self.is_terminal():
-            pass
-        else:
-            ruleset.update(self._expand())
-            for s in self.body:
-                ruleset |= s.to_ruleset()
+        for symbol in self.rhs:
+            if issubclass(symbol.__class__, NonterminalSymbol):
+                ruleset |= symbol.to_earley_ruleset()
 
         return ruleset
 
-    def __add__(self, other):
-        return And(self, other)
+class Forward(NonterminalSymbol):
+    def __init__(self, *args, **kwargs):
+        super(Forward, self).__init__(*args, **kwargs)
 
-    def __and__(self, other):
-        return And(self, other)
+    def to_earley_ruleset(self):
+        ruleset = {(self.name, self.rhs[0].name)}
+        ruleset |= super(Forward, self).to_earley_ruleset()
 
-    def __or__(self, other):
-        return Or(self, other)
+        return ruleset
 
+    def __lshift__(self, other):
+        self.add_rhs(other)
+        return self
 
-class _UnarySymbol(_Symbol):
-    def __init__(self, symbol):
-        super(_UnarySymbol, self).__init__(False)
-        self.set_body((symbol,))
+class Or(NonterminalSymbol):
+    def __init__(self, *args, **kwargs):
+        super(Or, self).__init__(*args, **kwargs)
 
+    def to_earley_ruleset(self):
+        ruleset = {(self.name, symbol.name) for symbol in self.rhs}
+        ruleset |= super(Or, self).to_earley_ruleset()
 
-class _BinarySymbol(_Symbol):
-    def __init__(self, s1, s2):
-        super(_BinarySymbol, self).__init__(False)
-        self.set_body((s1, s2))
-
-
-class _NarySymbol(_Symbol):
-    def __init__(self, *symbols):
-        super(_NarySymbol, self).__init__(False)
-        self.set_body(symbols)
+        return ruleset
 
 
-# External Symbols
+class And(NonterminalSymbol):
+    def __init__(self, *args, **kwargs):
+        super(And, self).__init__(*args, **kwargs)
 
-class Literal(_Symbol):
-    def __init__(self, token):
-        super(Literal, self).__init__(True)
-        self.set_body(token)
-        self.set_name(token)
+    def to_earley_ruleset(self):
+        ruleset = {(self.name,) + tuple(symbol.name for symbol in self.rhs)}
+        ruleset |= super(And, self).to_earley_ruleset()
 
+        return ruleset
 
-class OneOrMore(_UnarySymbol):
-    def __init__(self, symbol):
-        super(OneOrMore, self).__init__(symbol)
+class OneOrMore(NonterminalSymbol):
+    def __init__(self, *args, **kwargs):
+        super(OneOrMore, self).__init__(*args, **kwargs)
 
+    def to_earley_ruleset(self):
+        ruleset = {(self.name, self.rhs[0].name, self.name),
+                   (self.name, self.rhs[0].name)}
+        ruleset |= super(OneOrMore, self).to_earley_ruleset()
 
-class ZeroOrMore(_UnarySymbol):
-    def __init__(self, symbol):
-        super(ZeroOrMore, self).__init__(symbol)
+        return ruleset
 
+class ZeroOrMore(OneOrMore):
+    def __init__(self, *args, **kwargs):
+        super(ZeroOrMore, self).__init__(*args, **kwargs)
 
-class Or(_NarySymbol):
-    def __init__(self, *symbols):
-        super(Or, self).__init__(*symbols)
+    def to_earley_ruleset(self):
+        return super(ZeroOrMore, self).to_earley_ruleset() | {(self.name, )}
 
+class Optional(NonterminalSymbol):
+    def __init__(self, *args, **kwargs):
+        super(Optional, self).__init__(*args, **kwargs)
 
-class LiteralChoice(Or):
-    def __init__(self, tokens):
-        super(LiteralChoice, self).__init__(*[Literal(token) for token in tokens])
+    def to_earley_ruleset(self):
+        ruleset = {(self.name, self.rhs[0].name), (self.name, )}
+        ruleset |= super(Optional, self).to_earley_ruleset()
 
+        return ruleset
 
-class And(_NarySymbol):
-    def __init__(self, *symbols):
-        super(And, self).__init__(*symbols)
+Literal = TerminalSymbol
 
+def one_of(literal_choices):
+    symbol = Or()
+    for choice in literal_choices:
+        symbol.add_rhs(Literal(choice))
 
-class Optional(_UnarySymbol):
-    def __init__(self, symbol):
-        super(Optional, self).__init__(symbol)
-
+    return symbol
 
 def main():
-    x = OneOrMore(LiteralChoice("ABC")).set_name("S")
-    rules = list(x.to_ruleset())
+    # A -> B X | Y
+    # B -> A W | U
+
+    A = Forward("A")
+    B = Forward("B")
+
+    A << ((B + Literal("X")) | Literal("Y"))
+    B << ((A + Literal("W")) | Literal("U"))
+
+    rules = list(A.to_earley_ruleset())
 
     import pprint
     from pyearley import earley
@@ -157,7 +167,7 @@ def main():
     pprint.pprint(rules)
 
     ep = earley.EarleyParser(rules)
-    pprint.pprint(ep.parse("ABCBACBAB", "S", debug=True))
+    pprint.pprint(ep.parse("YWX", "A", debug=True))
 
 
 if __name__ == "__main__":

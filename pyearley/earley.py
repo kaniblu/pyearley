@@ -32,7 +32,10 @@ class Item(object):
 
 class EarleyParser(object):
     def __init__(self, rules):
-        self.rules = rules
+        self.rules = list(rules)
+
+        #Manage empty rules separately
+        self.empty_rules = [i for i, rule in enumerate(self.rules) if len(rule) == 1]
 
         #Cache dictionary
         self.rule_dict = {}
@@ -112,9 +115,7 @@ class EarleyParser(object):
                                 new_items.append(new_item)
 
                     #Token is none only when the outer loop is at the last iteration.
-                    elif token == None:
-                        continue
-                    else:
+                    elif token is not None:
                         cur_symbol = rhs[dot_idx]
                         #Encountered terminal node: scan
                         if cur_symbol in self.vocab_terminal:
@@ -131,6 +132,24 @@ class EarleyParser(object):
                                 new_item = Item(0, cur_state_idx, new_ridx)
                                 new_items.append(new_item)
                                 traceback[(new_item, cur_state_idx)] = []
+
+                    for r_idx in self.empty_rules:
+                        rule = self.rules[r_idx]
+                        lhs = rule[0]
+                        item = Item(0, cur_state_idx, r_idx)
+
+                        traceback[(item, cur_state_idx)] = []
+
+                        for it in state_sets[cur_state_idx]:
+                            it_r = self.rules[it.rule_idx]
+
+                            # Check if the dot is placed at the left of target non-terminal symbol.
+                            if it.dot_idx < len(it_r) - 1 and it_r[it.dot_idx + 1] == lhs:
+                                new_item = Item(it.dot_idx + 1, it.src_idx, it.rule_idx)
+                                traceback[(new_item, cur_state_idx)] = copy.copy(traceback[(it, cur_state_idx)])
+                                traceback[(new_item, cur_state_idx)].append((item, cur_state_idx))
+
+                                new_items.append(new_item)
 
                 if not new_items:
                     break
@@ -198,12 +217,12 @@ def main():
 
     # A -> X A
     # A -> X
-    rule_set = [("S", "X"), ("S", "X", "S")]
+    rule_set = [("T", "S", "E"), ("S", ), ("S", "X"), ("S", "X", "S")]
 
     ep = EarleyParser(rule_set)
 
     # This prints all possible parse trees respect to some target symbol.
-    pprint.pprint(ep.parse("XXXXXXXX", target_symbol="S", debug=True))
+    pprint.pprint(ep.parse("E", target_symbol="T", debug=True))
 
 if __name__ == "__main__":
     main()
