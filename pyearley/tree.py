@@ -63,10 +63,14 @@ class Graph(object):
         return self.edge_map.__contains__(item)
 
     def build_tree(self):
-        def _build_tree(tree, name):
-            t = tree.add_child(name="{}/{}".format(*name))
-            if name in self.edge_map:
-                for n in self.edge_map[name]:
+        def _build_tree(tree, node):
+            name = str(node[0])
+            value = node[1]
+            t = tree.add_child(name=name)
+            t.add_feature("value", value)
+
+            if node in self.edge_map:
+                for n in self.edge_map[node]:
                     _build_tree(t, n)
             return t
         self.tree = Tree()
@@ -77,15 +81,13 @@ class Graph(object):
 
     def __repr__(self):
         def _to_str(tree):
-            name = tree.name
-            if "/" in name:
-                name = name.split("/")[1]
+            value = tree.value
 
             if tree.children:
-                return "({}){}".format(",".join([_to_str(t) for t in tree.children]), name)
+                return "({}){}".format(",".join([_to_str(t) for t in tree.children]), value)
             else:
-                return name
-        return _to_str(self.tree)
+                return str(value)
+        return _to_str(self.tree.children[0])
 
     def _find_nodes(self, name):
         def __find_nodes(tree, name):
@@ -101,5 +103,5 @@ class Graph(object):
         return __find_nodes(self.tree, name)
 
     def prune_nodes(self, retained_symbols):
-        nodes = list(map(lambda x: "{}/{}".format(*x), filter(lambda x: x[1] in retained_symbols, self.nodes)))
+        nodes = list(map(lambda x: "{}".format(x[0]), filter(lambda x: x[1] in retained_symbols, self.nodes)))
         self.tree.prune(nodes)
