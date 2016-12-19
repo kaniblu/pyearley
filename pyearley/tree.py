@@ -14,7 +14,7 @@ class _GraphBuilder(object):
         nodes, edges = [], []
 
         if tree["type"] == "leaf":
-            node = (self.get_new_id(), tree["value"])
+            node = (self.get_new_id(), tree["value"], True)
             nodes.append(node)
             root = node
 
@@ -22,7 +22,7 @@ class _GraphBuilder(object):
             rule = tree["rule"]
             lhs = rule[0]
             rhs = rule[1:]
-            root = (self.get_new_id(), lhs)
+            root = (self.get_new_id(), lhs, False)
 
             children = []
             for c in tree["children"]:
@@ -103,5 +103,7 @@ class Graph(object):
         return __find_nodes(self.tree, name)
 
     def prune_nodes(self, retained_symbols):
-        nodes = list(map(lambda x: "{}".format(x[0]), filter(lambda x: x[1] in retained_symbols, self.nodes)))
+        nodes = set(map(lambda x: str(x[0]), filter(lambda x: x[1] in retained_symbols, self.nodes)))
+        nodes |= {str(n[0]) for n in self.nodes if n[2]}
+
         self.tree.prune(nodes)
