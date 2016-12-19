@@ -163,11 +163,19 @@ def main():
 
     import pprint
     from pyearley import earley
+    from pyearley import tree
 
     pprint.pprint(rules)
 
     ep = earley.EarleyParser(rules)
-    pprint.pprint(ep.parse("YWX", "A", debug=True))
+    parsed_trees = ep.parse("YWX", "A", debug=True)
+
+    pprint.pprint(parsed_trees)
+
+    graph = tree.Graph(parsed_trees[0])
+    graph.save("before.png")
+    graph.prune_nodes({"A", "B", "X", "W", "Y", "U"})
+    graph.save("test.png")
 
 
 if __name__ == "__main__":

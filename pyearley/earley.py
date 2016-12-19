@@ -187,7 +187,7 @@ class EarleyParser(object):
         if should_traceback:
             def construct_tree(item, idx):
                 if isinstance(item, Item):
-                    return {"type": "internal", "value": self.rules[item.rule_idx], "children": [construct_tree(c, next_idx) for c, next_idx in traceback[(item, idx)]]}
+                    return {"type": "internal", "rule": self.rules[item.rule_idx], "children": [construct_tree(c, next_idx) for c, next_idx in traceback[(item, idx)]]}
                 else:
                     return {"type": "leaf", "value": item}
 
