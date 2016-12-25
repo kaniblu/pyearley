@@ -162,14 +162,14 @@ class ZeroOrMore(OneOrMore):
         super(ZeroOrMore, self).__init__(*args, **kwargs)
 
     def expand(self):
-        return {(self.name,)}
+        return {(self.name,), (self.name, self.rhs[0].name, self.name)}
 
 class Optional(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(Optional, self).__init__(*args, **kwargs)
 
     def expand(self):
-        ruleset = {(self.name, self.rhs[0].name), (self.name, )}\
+        ruleset = {(self.name, self.rhs[0].name), (self.name, )}
 
         return ruleset
 
