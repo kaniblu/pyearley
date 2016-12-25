@@ -1,7 +1,7 @@
 # encoding: UTF-8
 
 import random
-import string
+import string, functools
 
 # Create abstracted context-free grammars
 # Follows pyparsing style constructors
@@ -51,6 +51,30 @@ class Symbol():
 
         return self
 
+    def _get_real_symbols(self, visited):
+        if self in visited:
+            return set()
+
+        visited.add(self)
+
+        if self.rhs:
+            return functools.reduce(lambda x, y: x | y, [s._get_real_symbols(visited) for s in self.rhs], set())
+        elif self.is_temp:
+            return set()
+        else:
+            return {self.name}
+
+    def get_real_symbols(self):
+        return self._get_real_symbols(set())
+
+    def ignore(self):
+        self.is_temp = True
+        return self
+
+    def attend(self):
+        self.is_temp = False
+        return self
+
     def __len__(self):
         return len(self.rhs)
 
@@ -61,35 +85,42 @@ class Symbol():
         return Or().add_rhs(self).add_rhs(other)
 
 class TerminalSymbol(Symbol):
-    def __init__(self, name=None):
-        super(TerminalSymbol, self).__init__(name, True)
+    def __init__(self, name=None, **kwargs):
+        super(TerminalSymbol, self).__init__(name, True, **kwargs)
 
 class NonterminalSymbol(Symbol):
-    def __init__(self, name=None):
-        super(NonterminalSymbol, self).__init__(name, False)
-        self._converted = False
+    def __init__(self, name=None, **kwargs):
+        super(NonterminalSymbol, self).__init__(name, False, **kwargs)
 
-    def to_earley_ruleset(self):
-        if self._converted:
+    def _get_expanded_ruleset(self, visited):
+
+        if self in visited:
             return set()
 
-        self._converted = True
+        visited.add(self)
 
         ruleset = set()
 
         for symbol in self.rhs:
             if issubclass(symbol.__class__, NonterminalSymbol):
-                ruleset |= symbol.to_earley_ruleset()
+                ruleset |= symbol._get_expanded_ruleset(visited)
+
+        ruleset |= self.expand()
 
         return ruleset
+
+    def get_expanded_ruleset(self):
+        return self._get_expanded_ruleset(set())
+
+    def expand(self):
+        raise NotImplementedError()
 
 class Forward(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(Forward, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
+    def expand(self):
         ruleset = {(self.name, self.rhs[0].name)}
-        ruleset |= super(Forward, self).to_earley_ruleset()
 
         return ruleset
 
@@ -101,9 +132,8 @@ class Or(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(Or, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
+    def expand(self):
         ruleset = {(self.name, symbol.name) for symbol in self.rhs}
-        ruleset |= super(Or, self).to_earley_ruleset()
 
         return ruleset
 
@@ -112,9 +142,8 @@ class And(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(And, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
+    def expand(self):
         ruleset = {(self.name,) + tuple(symbol.name for symbol in self.rhs)}
-        ruleset |= super(And, self).to_earley_ruleset()
 
         return ruleset
 
@@ -122,10 +151,9 @@ class OneOrMore(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(OneOrMore, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
+    def expand(self):
         ruleset = {(self.name, self.rhs[0].name, self.name),
                    (self.name, self.rhs[0].name)}
-        ruleset |= super(OneOrMore, self).to_earley_ruleset()
 
         return ruleset
 
@@ -133,16 +161,15 @@ class ZeroOrMore(OneOrMore):
     def __init__(self, *args, **kwargs):
         super(ZeroOrMore, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
-        return super(ZeroOrMore, self).to_earley_ruleset() | {(self.name, )}
+    def expand(self):
+        return {(self.name,)}
 
 class Optional(NonterminalSymbol):
     def __init__(self, *args, **kwargs):
         super(Optional, self).__init__(*args, **kwargs)
 
-    def to_earley_ruleset(self):
-        ruleset = {(self.name, self.rhs[0].name), (self.name, )}
-        ruleset |= super(Optional, self).to_earley_ruleset()
+    def expand(self):
+        ruleset = {(self.name, self.rhs[0].name), (self.name, )}\
 
         return ruleset
 
@@ -162,22 +189,14 @@ def main():
     A = Forward("A")
     B = Forward("B")
 
-    A << ((B + Literal("X")) | Literal("Y"))
-    B << ((A + Literal("W")) | Literal("U"))
+    A << ((B + Literal("X").ignore()) | Literal("Y").ignore())
+    B << ((A + Literal("W").ignore()) | Literal("U").ignore())
 
-    rules = list(A.to_earley_ruleset())
+    symbols = A.get_real_symbols()
+    expanded_rules = A.get_expanded_ruleset()
 
-    import pprint
-    from pyearley import earley
-    from pyearley import tree
-
-    pprint.pprint(rules)
-
-    ep = earley.EarleyParser(rules)
-    parsed_trees = ep.parse("YWX", "A", debug=True)
-
-    pprint.pprint(parsed_trees)
-
+    print(symbols)
+    print(expanded_rules)
 
 if __name__ == "__main__":
     main()
