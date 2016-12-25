@@ -1,6 +1,7 @@
 #encoding: UTF-8
 
 import functools, copy
+from pyearley.tree import GraphBuilder
 
 class Item(object):
     def __init__(self, dot_idx, src_idx, rule_idx):
@@ -122,7 +123,7 @@ class EarleyParser(object):
                             if cur_symbol == token:
                                 new_item = Item(dot_idx + 1, src_state_idx, rule_idx)
                                 traceback[(new_item, cur_state_idx + 1)] = copy.copy(traceback[(item, cur_state_idx)])
-                                traceback[(new_item, cur_state_idx + 1)].append((token, cur_state_idx))
+                                traceback[(new_item, cur_state_idx + 1)].append(((cur_symbol, token), cur_state_idx))
 
                                 state_sets[cur_state_idx + 1].add(new_item)
 
@@ -187,11 +188,21 @@ class EarleyParser(object):
         if should_traceback:
             def construct_tree(item, idx):
                 if isinstance(item, Item):
-                    return {"type": "internal", "rule": self.rules[item.rule_idx], "children": [construct_tree(c, next_idx) for c, next_idx in traceback[(item, idx)]]}
+                    rule = self.rules[item.rule_idx]
+                    symbol = rule[0]
+                    return {"type": "internal", "rule": rule, "symbol": symbol, "children": [construct_tree(c, next_idx) for c, next_idx in traceback[(item, idx)]]}
                 else:
-                    return {"type": "leaf", "value": item}
+                    symbol, token = item
+                    return {"type": "leaf", "symbol": symbol, "token": token}
 
-            ret = [construct_tree(target_rule, len(tokens)) for target_rule in results]
+            trees = [construct_tree(target_rule, len(tokens)) for target_rule in results]
+
+            graph_builder = GraphBuilder()
+
+            ret = []
+            for t in trees:
+                tree = graph_builder.build(t)
+                ret.append(tree)
         else:
             ret = len(results) > 0
 
@@ -199,6 +210,8 @@ class EarleyParser(object):
         del state_sets, traceback
 
         return ret
+
+
 def main():
     import pprint
     """
@@ -222,7 +235,9 @@ def main():
     ep = EarleyParser(rule_set)
 
     # This prints all possible parse trees respect to some target symbol.
-    pprint.pprint(ep.parse("E", target_symbol="T", debug=True))
+    results = ep.parse("E", target_symbol="T", debug=True)
+
+    results[0].show()
 
 if __name__ == "__main__":
     main()

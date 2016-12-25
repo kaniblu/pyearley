@@ -23,9 +23,15 @@ def _create_random_name(l=6):
 # basic form
 
 class Symbol():
-    def __init__(self, name=None, is_terminal=False):
+    def __init__(self, name=None, is_terminal=False, is_temp=None):
         if name is None:
             name = _create_random_name()
+            self.is_temp = True
+        else:
+            self.is_temp = False
+
+        if is_temp is not None:
+            self.is_temp = is_temp
 
         self.set_name(name)
         self.is_terminal = is_terminal
@@ -171,10 +177,6 @@ def main():
     parsed_trees = ep.parse("YWX", "A", debug=True)
 
     pprint.pprint(parsed_trees)
-
-    graph = tree.Graph(parsed_trees[0])
-    graph.prune_nodes({"A", "B", "X", "W", "Y", "U"})
-    print(graph)
 
 
 if __name__ == "__main__":

@@ -1,109 +1,32 @@
-from ete3 import Tree
+from ete3 import Tree, TreeNode
 
-class _GraphBuilder(object):
+class GraphBuilder(object):
     def __init__(self):
-        self.index = 0
+        pass
 
-    def get_new_id(self):
-        i = self.index
-        self.index += 1
+    def build(self, parse_node):
+        def _build(parse_node, tree_node=None):
+            if tree_node is None:
+                tree_node = TreeNode()
 
-        return i
+            if parse_node["type"] == "leaf":
+                symbol = parse_node["symbol"]
+                token = parse_node["token"]
 
-    def build(self, tree):
-        nodes, edges = [], []
+                tree_node.name = symbol
+                tree_node.add_feature("token", token)
+            elif parse_node["type"] == "internal":
+                symbol = parse_node["symbol"]
+                rule = parse_node["rule"]
+                children = parse_node["children"]
 
-        if tree["type"] == "leaf":
-            node = (self.get_new_id(), tree["value"], True)
-            nodes.append(node)
-            root = node
+                for child_node in children:
+                    node = _build(child_node)
+                    tree_node.add_child(node)
 
-        elif tree["type"] == "internal":
-            rule = tree["rule"]
-            lhs = rule[0]
-            rhs = rule[1:]
-            root = (self.get_new_id(), lhs, False)
+                tree_node.name = symbol
+                tree_node.add_feature("rule", rule)
 
-            children = []
-            for c in tree["children"]:
-                c_root, c_nodes, c_edges = self.build(c)
-                nodes.extend(c_nodes)
-                edges.extend(c_edges)
-                children.append(c_root)
+            return tree_node
 
-            for c in children:
-                edges.append((root, c))
-
-            nodes.append(root)
-
-        else:
-            raise ValueError()
-
-        return root, nodes, edges
-
-
-class Graph(object):
-    def __init__(self, parse_tree):
-        builder = _GraphBuilder()
-        self.root, self.nodes, self.edges = builder.build(parse_tree)
-
-        # Cache in dictionary
-        self.edge_map = {}
-        for a, b in self.edges:
-            if a not in self.edge_map:
-                self.edge_map[a] = []
-            self.edge_map[a].append(b)
-
-        self.build_tree()
-
-    def __getitem__(self, item):
-        return self.edge_map.__getitem__(item)
-
-    def __contains__(self, item):
-        return self.edge_map.__contains__(item)
-
-    def build_tree(self):
-        def _build_tree(tree, node):
-            name = str(node[0])
-            value = node[1]
-            t = tree.add_child(name=name)
-            t.add_feature("value", value)
-
-            if node in self.edge_map:
-                for n in self.edge_map[node]:
-                    _build_tree(t, n)
-            return t
-        self.tree = Tree()
-        _build_tree(self.tree, self.root)
-
-    def save(self, filename, **kwargs):
-        self.tree.render(filename, **kwargs)
-
-    def __repr__(self):
-        def _to_str(tree):
-            value = tree.value
-
-            if tree.children:
-                return "({}){}".format(",".join([_to_str(t) for t in tree.children]), value)
-            else:
-                return str(value)
-        return _to_str(self.tree.children[0])
-
-    def _find_nodes(self, name):
-        def __find_nodes(tree, name):
-            results = set()
-            if tree.name == name:
-                results.add(tree)
-
-            for c in tree.children:
-                results.update(__find_nodes(c, name))
-
-            return results
-
-        return __find_nodes(self.tree, name)
-
-    def prune_nodes(self, retained_symbols):
-        nodes = set(map(lambda x: str(x[0]), filter(lambda x: x[1] in retained_symbols, self.nodes)))
-        nodes |= {str(n[0]) for n in self.nodes if n[2]}
-
-        self.tree.prune(nodes)
+        return _build(parse_node, Tree())
