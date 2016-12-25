@@ -10,8 +10,8 @@ class EarleyParser():
         expanded_rules = pyearley_rules.get_expanded_ruleset()
         self.parser = PureEarleyParser(expanded_rules)
 
-    def parse(self, tokens, target_symbol):
-        trees = self.parser.parse(tokens, target_symbol, should_traceback=True)
+    def parse(self, tokens, target_symbol, **kwargs):
+        trees = self.parser.parse(tokens, target_symbol, should_traceback=True, **kwargs)
 
         for tree in trees:
             prune(tree, self.symbols)
