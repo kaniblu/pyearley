@@ -59,6 +59,11 @@ class EarleyParser(object):
         #Cache nonterminal symbols for each rule
         #self.rule_nonterminals = [set(r[1:]) & self.vocab_nonterminal for r in self.rules]
 
+        # Setup Traceback
+        # data structure for managing tracebacks
+        # maps (item, cur_idx) to list of terminal tokens or other (item, cur_idx) tuples
+        self._traceback = {}
+
     def visualize(self, item):
         rule = self.rules[item.rule_idx]
         dot_idx = item.dot_idx
@@ -69,18 +74,128 @@ class EarleyParser(object):
 
         return "({}) {} -> {}".format(item.src_idx, lhs, " ".join(rhs))
 
+    def _traceback_add(self, item, state_idx, stack_item, prev_item=None, prev_state_idx=None):
+        key = (item, state_idx)
+
+        if key not in self._traceback:
+            self._traceback[key] = []
+
+        self._traceback[key].append({"item": stack_item,
+                                     "ref": (prev_item, prev_state_idx)})
+
+    def _traceback_init(self, item, state_idx):
+        self._traceback[(item, state_idx)] = [{"item": None, "ref": None}]
+
+    def _traceback_create_tree(self, item, state_idx):
+        def __traceback_expand(item, state_idx, cache):
+            if (item, state_idx) in cache:
+                return cache[(item, state_idx)]
+
+            rule = self.rules[item.rule_idx]
+            symbol = rule[0]
+
+            candidates = set()
+
+            for path in self._traceback[(item, state_idx)]:
+                it = path["item"]
+                ref = path["ref"]
+
+                if ref is None:
+                    traces = {tuple()}
+                else:
+                    prev_item, prev_state_idx = ref
+                    traces = __traceback_expand(prev_item, prev_state_idx, cache)
+
+                if it is not None:
+                    cur_item, cur_state_idx = it
+
+                    if isinstance(cur_item, Item):
+                        __traceback_expand(cur_item, cur_state_idx, cache)
+
+                for trace in traces:
+                    new_trace = copy.copy(trace)
+
+                    if it is not None:
+                        new_trace = new_trace + (it, )
+
+                    candidates.add(new_trace)
+
+            cache[(item, state_idx)] = candidates
+
+            return candidates
+
+        def __traceback_create_tree(cache, item, state_idx):
+            if isinstance(item, Item):
+                rule = self.rules[item.rule_idx]
+                symbol = rule[0]
+                candidates = []
+
+                c = cache[(item, state_idx)]
+
+                for trace in c:
+                    children = []
+                    for c, next_idx in trace:
+                        node = __traceback_create_tree(cache, c, next_idx)
+                        children.append(node)
+
+                    candidates.append(children)
+
+                return {"type": "internal", "rule": rule, "symbol": symbol, "children": candidates}
+
+            else:
+                symbol, token = item
+                return {"type": "leaf", "symbol": symbol, "token": token}
+
+        def __iter_nested_list(ll):
+            if len(ll) == 0:
+                return []
+
+            if len(ll) == 1:
+                return [[i] for i in ll[0]]
+
+            it = __iter_nested_list(ll[:-1])
+            new_it = [j + [i] for i in ll[-1] for j in it]
+
+            return new_it
+
+        def __traceback_list(candidate_tree):
+            if candidate_tree["type"] == "leaf" or (len(candidate_tree["rule"]) == 1):
+
+                if "children" in candidate_tree:
+                    candidate_tree["children"] = []
+
+                return [candidate_tree]
+
+            candidates = candidate_tree["children"]
+            results = []
+
+            for candidate in candidates:
+                candidate_listed = [__traceback_list(c) for c in candidate]
+                comb = __iter_nested_list(candidate_listed)
+                for c in comb:
+                    node_copy = copy.copy(candidate_tree)
+                    node_copy["children"] = c
+                    results.append(node_copy)
+
+            return results
+
+        cache = {}
+        __traceback_expand(item, state_idx, cache)
+        candidate_trees = __traceback_create_tree(cache, item, state_idx)
+        results = __traceback_list(candidate_trees)
+
+        return results
+
     def parse(self, tokens, target_symbol, should_traceback=True, debug=False):
         state_sets = [set() for i in range(len(tokens) + 1)]
 
-        #data structure for managing tracebacks
-        #maps (item, cur_idx) to list of terminal tokens or other (item, cur_idx) tuples
-        traceback = {}
+        self._traceback = {}
 
         for i, r in enumerate(self.rules):
             item = Item(0, 0, i) #an item is a tuple of dot index, source state index, and the rule index (in self.rules)
             state_sets[0].add(item)
 
-            traceback[(item, 0)] = []
+            self._traceback_init(item, 0)
 
         for cur_state_idx, state_set in enumerate(state_sets):
             if cur_state_idx >= len(tokens):
@@ -110,8 +225,7 @@ class EarleyParser(object):
                             #Check if the dot is placed at the left of target non-terminal symbol.
                             if it.dot_idx < len(it_r) - 1 and it_r[it.dot_idx + 1] == lhs:
                                 new_item = Item(it.dot_idx + 1, it.src_idx, it.rule_idx)
-                                traceback[(new_item, cur_state_idx)] = copy.copy(traceback[(it, src_state_idx)])
-                                traceback[(new_item, cur_state_idx)].append((item, cur_state_idx))
+                                self._traceback_add(new_item, cur_state_idx, (item, cur_state_idx), it, src_state_idx)
 
                                 new_items.append(new_item)
 
@@ -122,8 +236,7 @@ class EarleyParser(object):
                         if cur_symbol in self.vocab_terminal:
                             if cur_symbol == token:
                                 new_item = Item(dot_idx + 1, src_state_idx, rule_idx)
-                                traceback[(new_item, cur_state_idx + 1)] = copy.copy(traceback[(item, cur_state_idx)])
-                                traceback[(new_item, cur_state_idx + 1)].append(((cur_symbol, token), cur_state_idx))
+                                self._traceback_add(new_item, cur_state_idx + 1, ((cur_symbol, token), cur_state_idx), item, cur_state_idx)
 
                                 state_sets[cur_state_idx + 1].add(new_item)
 
@@ -132,14 +245,15 @@ class EarleyParser(object):
                             for new_ridx in self.rule_dict[cur_symbol]:
                                 new_item = Item(0, cur_state_idx, new_ridx)
                                 new_items.append(new_item)
-                                traceback[(new_item, cur_state_idx)] = []
+
+                                self._traceback_init(new_item, cur_state_idx)
 
                     for r_idx in self.empty_rules:
                         rule = self.rules[r_idx]
                         lhs = rule[0]
                         item = Item(0, cur_state_idx, r_idx)
 
-                        traceback[(item, cur_state_idx)] = []
+                        self._traceback_init(item, cur_state_idx)
 
                         for it in state_sets[cur_state_idx]:
                             it_r = self.rules[it.rule_idx]
@@ -147,8 +261,8 @@ class EarleyParser(object):
                             # Check if the dot is placed at the left of target non-terminal symbol.
                             if it.dot_idx < len(it_r) - 1 and it_r[it.dot_idx + 1] == lhs:
                                 new_item = Item(it.dot_idx + 1, it.src_idx, it.rule_idx)
-                                traceback[(new_item, cur_state_idx)] = copy.copy(traceback[(it, cur_state_idx)])
-                                traceback[(new_item, cur_state_idx)].append((item, cur_state_idx))
+
+                                self._traceback_add(new_item, cur_state_idx, (item, cur_state_idx), it, cur_state_idx)
 
                                 new_items.append(new_item)
 
@@ -174,7 +288,7 @@ class EarleyParser(object):
                     print("{}. {}".format(i + 1, self.visualize(item)))
 
 
-        results = []
+        final_items = []
 
         for item in state_sets[-1]:
             if item.src_idx != 0:
@@ -182,20 +296,12 @@ class EarleyParser(object):
 
             rule = self.rules[item.rule_idx]
 
-            if rule[0] == target_symbol and item.dot_idx >= len(rule) - 1:
-                results.append(item)
+            if rule[0] == target_symbol.name and item.dot_idx >= len(rule) - 1:
+                final_items.append(item)
 
         if should_traceback:
-            def construct_tree(item, idx):
-                if isinstance(item, Item):
-                    rule = self.rules[item.rule_idx]
-                    symbol = rule[0]
-                    return {"type": "internal", "rule": rule, "symbol": symbol, "children": [construct_tree(c, next_idx) for c, next_idx in traceback[(item, idx)]]}
-                else:
-                    symbol, token = item
-                    return {"type": "leaf", "symbol": symbol, "token": token}
-
-            trees = [construct_tree(target_rule, len(tokens)) for target_rule in results]
+            trees = [self._traceback_create_tree(item, len(tokens)) for item in final_items]
+            trees = [t for tree_l in trees for t in tree_l]
 
             graph_builder = GraphBuilder()
 
@@ -204,40 +310,9 @@ class EarleyParser(object):
                 tree = graph_builder.build(t)
                 ret.append(tree)
         else:
-            ret = len(results) > 0
+            ret = len(final_items) > 0
 
         # Clean up
-        del state_sets, traceback
+        del state_sets
 
         return ret
-
-
-def main():
-    import pprint
-    """
-    # A -> B C | D
-    # B -> A E | F
-    # rule_set = [("A", "B", "C"), ("A", "D"), ("B", "A", "E"), ("B", "F")]
-
-    ep = EarleyParser(rule_set)
-
-    # This prints all possible parse trees respect to some target symbol.
-    pprint.pprint(ep.parse("FCECECECECE", target_symbol="B"))
-
-    # You can also save some computations if back-tracing is not needed.
-    print(ep.parse("FCECECECECE", "B", should_traceback=False))
-    """
-
-    # A -> X A
-    # A -> X
-    rule_set = [("T", "S", "E"), ("S", ), ("S", "X"), ("S", "X", "S")]
-
-    ep = EarleyParser(rule_set)
-
-    # This prints all possible parse trees respect to some target symbol.
-    results = ep.parse("E", target_symbol="T", debug=True)
-
-    results[0].show()
-
-if __name__ == "__main__":
-    main()
