@@ -2,6 +2,7 @@
 
 import functools, copy
 from pyearley.tree import GraphBuilder
+from pyearley.tree import InternalNode, LeafNode
 
 class Item(object):
     def __init__(self, dot_idx, src_idx, rule_idx):
@@ -159,23 +160,26 @@ class EarleyParser(object):
             return new_it
 
         def __traceback_list(candidate_tree):
-            if candidate_tree["type"] == "leaf" or (len(candidate_tree["rule"]) == 1):
+            if candidate_tree["type"] == "leaf":
 
                 if "children" in candidate_tree:
                     candidate_tree["children"] = []
 
-                return [candidate_tree]
+                return {LeafNode(candidate_tree["symbol"], candidate_tree["token"])}
+
+            if len(candidate_tree["rule"]) == 1:
+                return set()
 
             candidates = candidate_tree["children"]
-            results = []
+            results = set()
 
             for candidate in candidates:
                 candidate_listed = [__traceback_list(c) for c in candidate]
+                candidate_listed = [l for l in candidate_listed if len(l) > 0]
                 comb = __iter_nested_list(candidate_listed)
                 for c in comb:
-                    node_copy = copy.copy(candidate_tree)
-                    node_copy["children"] = c
-                    results.append(node_copy)
+                    node_obj = InternalNode(candidate_tree["rule"], c)
+                    results.add(node_obj)
 
             return results
 
